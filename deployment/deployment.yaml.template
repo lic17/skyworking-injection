@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skyworking-inject-server
+  namespace: linkedcare-system
+  labels:
+    app: skyworking-inject-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skyworking-inject-server
+  template:
+    metadata:
+      labels:
+        app: skyworking-inject-server
+    spec:
+      containers:
+      - env:
+        - name: SKYWORKING_SERVER
+          value: skywalking-oap.infra.svc.cluster.local:11800
+        name: server
+        image: registry.cn-hangzhou.aliyuncs.com/linkedcare/skyworking-injection:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8443
+          name: webhook-api
+        volumeMounts:
+        - name: webhook-tls-certs
+          mountPath: /run/secrets/tls
+          readOnly: true
+      volumes:
+      - name: webhook-tls-certs
+        secret:
+          secretName: skyworking-inject-webhook-server-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skyworking-inject-server
+  namespace: linkedcare-system
+spec:
+  selector:
+    app: skyworking-inject-server
+  ports:
+    - port: 443
+      targetPort: webhook-api
+---
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: skyworking-inject-webhook
+webhooks:
+  - name: skyworking-inject-server.linkedcare-system.svc
+    clientConfig:
+      service:
+        name: skyworking-inject-server
+        namespace: linkedcare-system
+        path: "/mutate"
+      caBundle: ${CA_PEM_B64}
+    rules:
+      - operations: [ "CREATE" ]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
